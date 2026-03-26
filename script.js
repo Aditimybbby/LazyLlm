@@ -1,33 +1,24 @@
 const sessionId = crypto.randomUUID();
 let ws = null;
-let messageQueue = [];
+let currentFile = null;
 
 function connect() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${location.host}/ws/${sessionId}`);
     
     ws.onopen = () => {
-        document.getElementById('statusText').textContent = 'Connected';
-        document.querySelector('.status-dot').style.background = '#10a37f';
-        while (messageQueue.length) {
-            ws.send(messageQueue.shift());
-        }
+        console.log('Connected');
+        document.getElementById('sendBtn').disabled = false;
     };
     
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        let content = data.response || 'Done';
-        
-        if (data.execution && data.execution.stdout) {
-            content += '\n\n```\n' + data.execution.stdout + '\n```';
-        }
-        
-        addMessage('assistant', content);
+        addMessage('assistant', data.response);
+        document.getElementById('sendBtn').disabled = false;
     };
     
     ws.onclose = () => {
-        document.getElementById('statusText').textContent = 'Reconnecting...';
-        document.querySelector('.status-dot').style.background = '#ef4444';
+        console.log('Disconnected, reconnecting...');
         setTimeout(connect, 3000);
     };
 }
@@ -37,78 +28,98 @@ function addMessage(role, content) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
     
-    let formattedContent = content.replace(/\n/g, '<br>');
-    formattedContent = formattedContent.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+    let formatted = content.replace(/\n/g, '<br>');
+    formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
     
-    messageDiv.innerHTML = `<div class="message-content">${formattedContent}</div>`;
+    messageDiv.innerHTML = `<div class="message-content">${formatted}</div>`;
     messagesDiv.appendChild(messageDiv);
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
-document.getElementById('sendBtn').onclick = () => {
+async function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_id', sessionId);
+    
+    const response = await fetch('/upload', { method: 'POST', body: formData });
+    const result = await response.json();
+    
+    if (result.success) {
+        addMessage('assistant', `📁 Uploaded: ${result.filename} (${Math.round(result.size / 1024)} KB)`);
+        return result.path;
+    }
+    return null;
+}
+
+function showFilePreview(file) {
+    const previewDiv = document.getElementById('filePreview');
+    const previewItem = document.createElement('div');
+    previewItem.className = 'preview-item';
+    previewItem.innerHTML = `
+        📄 ${file.name} (${Math.round(file.size / 1024)} KB)
+        <span class="remove" onclick="this.parentElement.remove(); currentFile = null;">✕</span>
+    `;
+    previewDiv.innerHTML = '';
+    previewDiv.appendChild(previewItem);
+}
+
+document.getElementById('sendBtn').onclick = async () => {
     const input = document.getElementById('messageInput');
     const message = input.value.trim();
-    if (!message) return;
+    const fileInput = document.getElementById('fileInput');
     
-    addMessage('user', message);
+    if (!message && !currentFile) return;
     
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ message: message }));
-    } else {
-        messageQueue.push(JSON.stringify({ message: message }));
-        connect();
+    document.getElementById('sendBtn').disabled = true;
+    
+    if (currentFile) {
+        addMessage('user', `📎 ${currentFile.name}`);
+        const filePath = await uploadFile(currentFile);
+        
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ 
+                message: message || `Analyze this file: ${currentFile.name}`,
+                file_path: filePath
+            }));
+        }
+        
+        currentFile = null;
+        document.getElementById('filePreview').innerHTML = '';
+    } else if (message) {
+        addMessage('user', message);
+        
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ message: message, file_path: null }));
+        }
     }
     
     input.value = '';
+    input.style.height = 'auto';
+};
+
+document.getElementById('attachBtn').onclick = () => {
+    document.getElementById('fileInput').click();
+};
+
+document.getElementById('fileInput').onchange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        currentFile = file;
+        showFilePreview(file);
+    }
+    e.target.value = '';
 };
 
 document.getElementById('messageInput').onkeydown = (e) => {
-    if (e.ctrlKey && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
         document.getElementById('sendBtn').click();
     }
 };
 
-document.getElementById('uploadBtn').onclick = () => {
-    document.getElementById('fileInput').click();
+document.getElementById('messageInput').oninput = function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 150) + 'px';
 };
-
-document.getElementById('fileInput').onchange = async (e) => {
-    for (const file of e.target.files) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('session_id', sessionId);
-        
-        const response = await fetch('/upload', { method: 'POST', body: formData });
-        const result = await response.json();
-        
-        if (result.success) {
-            addMessage('assistant', `📁 Uploaded: ${result.filename} (${Math.round(result.size / 1024)} KB)`);
-            loadFiles();
-        }
-    }
-};
-
-async function loadFiles() {
-    const response = await fetch(`/files/${sessionId}`);
-    const data = await response.json();
-    const container = document.getElementById('fileList');
-    container.innerHTML = '';
-    
-    if (data.files && data.files.length) {
-        data.files.forEach(file => {
-            const div = document.createElement('div');
-            div.className = 'file-item';
-            div.innerHTML = `
-                <a href="${file.download_url}" download>📄 ${file.name}</a>
-                <span>${Math.round(file.size / 1024)} KB</span>
-            `;
-            container.appendChild(div);
-        });
-    } else {
-        container.innerHTML = '<div style="color:#8e8ea0; font-size:0.7rem;">No files</div>';
-    }
-}
 
 connect();
-loadFiles();
-setInterval(loadFiles, 3000);
