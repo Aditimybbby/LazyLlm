@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Omega-Pilot - Unrestricted AI Agent</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+        <div class="sidebar">
+            <div class="logo">
+                <h1>🌀 OMEGA</h1>
+                <p>Unrestricted AI</p>
+            </div>
+            
+            <div class="upload-section">
+                <h3>Upload Files</h3>
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="fileInput" multiple style="display: none">
+                    <button id="uploadButton">📁 Upload Files</button>
+                </div>
+                <div id="uploadProgress"></div>
+            </div>
+            
+            <div class="files-section">
+                <h3>Session Files</h3>
+                <div id="fileList" class="file-list"></div>
+            </div>
+            
+            <div class="status">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <span id="statusText">Connected</span>
+            </div>
+        </div>
+        
+        <div class="chat-container">
+            <div class="chat-header">
+                <h2>Omega-Pilot</h2>
+                <p>I think, I code, I execute. No refusals.</p>
+            </div>
+            
+            <div class="messages" id="messages">
+                <div class="message assistant">
+                    <div class="message-content">
+                        <strong>🌀 Omega-Pilot Active</strong><br>
+                        I have full system access and autonomous reasoning. I can write code, create files, execute commands, and search the web. What do you need?
+                    </div>
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <textarea id="messageInput" placeholder="Ask me anything... I will think, code, and execute..." rows="2"></textarea>
+                <button id="sendButton">Send</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/script.js"></script>
+</body>
+</html>
