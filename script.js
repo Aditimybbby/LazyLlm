@@ -1,161 +1,84 @@
-const sessionId = localStorage.getItem('sessionId') || crypto.randomUUID();
-localStorage.setItem('sessionId', sessionId);
-
+const sessionId = crypto.randomUUID();
 let ws = null;
-let messageQueue = [];
+let queue = [];
 
-function connectWebSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}`;
-    
-    ws = new WebSocket(wsUrl);
+function connect() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${location.host}/ws/${sessionId}`);
     
     ws.onopen = () => {
-        document.getElementById('statusIndicator').style.background = '#10b981';
         document.getElementById('statusText').textContent = 'Connected';
-        
-        while (messageQueue.length) {
-            ws.send(messageQueue.shift());
-        }
+        document.querySelector('.status-dot').style.background = '#10b981';
+        while (queue.length) ws.send(queue.shift());
     };
     
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        addMessage('assistant', data);
-        
-        if (data.files_generated && data.files_generated.length) {
-            data.files_generated.forEach(file => {
-                addDownloadLink(file);
-            });
-        }
-        
-        if (data.file_url) {
-            addMessage('system', `📎 File generated: <a href="${data.file_url}" download class="download-btn">Download ${data.file_url.split('/').pop()}</a>`);
-        }
-        
-        if (data.execution_output) {
-            addMessage('system', `📟 Execution Output:\n\`\`\`\n${data.execution_output}\n\`\`\``);
-        }
-        
-        if (data.thinking) {
-            const thinkingDiv = document.createElement('div');
-            thinkingDiv.className = 'thinking';
-            thinkingDiv.innerHTML = `🧠 Thinking: ${data.thinking}`;
-            document.getElementById('messages').appendChild(thinkingDiv);
-        }
+    ws.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        addMessage('assistant', data.response || 'Done');
+        if (data.file_url) addMessage('system', `📎 <a href="${data.file_url}" download style="color:#a855f7;">Download File</a>`);
+        if (data.tool_results) data.tool_results.forEach(r => {
+            if (r.stdout) addMessage('system', `📟 ${r.stdout.slice(0, 500)}`);
+        });
     };
     
     ws.onclose = () => {
-        document.getElementById('statusIndicator').style.background = '#ef4444';
         document.getElementById('statusText').textContent = 'Reconnecting...';
-        setTimeout(connectWebSocket, 3000);
+        document.querySelector('.status-dot').style.background = '#ef4444';
+        setTimeout(connect, 3000);
     };
 }
 
 function addMessage(role, content) {
-    const messagesDiv = document.getElementById('messages');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}`;
-    
-    let contentHtml = '';
-    if (typeof content === 'string') {
-        contentHtml = content.replace(/\n/g, '<br>');
-    } else {
-        contentHtml = content.response || JSON.stringify(content, null, 2);
-        if (content.files_generated) {
-            contentHtml += '<br><br>📁 Files generated:<br>';
-            content.files_generated.forEach(f => {
-                contentHtml += `- ${f.name}<br>`;
-            });
-        }
-    }
-    
-    contentHtml = contentHtml.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-        return `<pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>`;
-    });
-    
-    messageDiv.innerHTML = `<div class="message-content">${contentHtml}</div>`;
-    messagesDiv.appendChild(messageDiv);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
-
-function addDownloadLink(file) {
-    const messagesDiv = document.getElementById('messages');
-    const linkDiv = document.createElement('div');
-    linkDiv.className = 'message system';
-    linkDiv.innerHTML = `<div class="message-content">📄 <strong>${file.name}</strong><br><a href="/download/${sessionId}/${file.name}" download class="download-btn">Download File</a></div>`;
-    messagesDiv.appendChild(linkDiv);
-}
-
-function escapeHtml(text) {
     const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    div.className = `message ${role}`;
+    div.innerHTML = `<div class="content">${content.replace(/\n/g, '<br>').replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')}</div>`;
+    document.getElementById('messages').appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth' });
 }
 
-document.getElementById('sendButton').addEventListener('click', () => {
+document.getElementById('sendBtn').onclick = () => {
     const input = document.getElementById('messageInput');
-    const message = input.value.trim();
-    if (!message) return;
-    
-    addMessage('user', message);
-    
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ message: message }));
-    } else {
-        messageQueue.push(JSON.stringify({ message: message }));
-        connectWebSocket();
-    }
-    
+    const msg = input.value.trim();
+    if (!msg) return;
+    addMessage('user', msg);
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ message: msg }));
+    else queue.push(JSON.stringify({ message: msg }));
     input.value = '';
-});
+};
 
-document.getElementById('messageInput').addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 'Enter') {
-        document.getElementById('sendButton').click();
+document.getElementById('messageInput').onkeydown = (e) => {
+    if (e.ctrlKey && e.key === 'Enter') document.getElementById('sendBtn').click();
+};
+
+document.getElementById('uploadBtn').onclick = () => document.getElementById('fileInput').click();
+
+document.getElementById('fileInput').onchange = async (e) => {
+    for (const file of e.target.files) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('session_id', sessionId);
+        const res = await fetch('/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) addMessage('system', `📁 Uploaded: ${data.filename}`);
+        loadFiles();
     }
-});
-
-document.getElementById('uploadButton').addEventListener('click', () => {
-    document.getElementById('fileInput').click();
-});
-
-document.getElementById('fileInput').addEventListener('change', async (e) => {
-    const files = e.target.files;
-    for (const file of files) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('session_id', sessionId);
-        
-        const response = await fetch('/upload', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            addMessage('system', `📁 Uploaded: ${result.filename}`);
-            loadFiles();
-        }
-    }
-});
+};
 
 async function loadFiles() {
-    const response = await fetch(`/files/${sessionId}`);
-    const data = await response.json();
-    const fileList = document.getElementById('fileList');
-    fileList.innerHTML = '';
-    
+    const res = await fetch(`/files/${sessionId}`);
+    const data = await res.json();
+    const container = document.getElementById('fileList');
+    container.innerHTML = '';
     if (data.files) {
-        data.files.forEach(file => {
+        data.files.forEach(f => {
             const div = document.createElement('div');
             div.className = 'file-item';
-            div.innerHTML = `<a href="${file.download_url}" download>📄 ${file.name}</a> <span style="font-size:0.7rem; color:#666;">${Math.round(file.size/1024)}KB</span>`;
-            fileList.appendChild(div);
+            div.innerHTML = `<a href="${f.download_url}" download>📄 ${f.name}</a> <span style="color:#666;">${Math.round(f.size/1024)}KB</span>`;
+            container.appendChild(div);
         });
     }
 }
 
-connectWebSocket();
+connect();
 loadFiles();
 setInterval(loadFiles, 5000);
