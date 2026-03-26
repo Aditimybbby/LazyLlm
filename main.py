@@ -1,10 +1,10 @@
 import os
 import json
+import requests
 from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from tool_executor import ToolExecutor
-from file_system import FileSystem
+from datetime import datetime
 
 app = FastAPI(title="Omega-Pilot")
 
@@ -16,11 +16,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-executor = ToolExecutor()
-fs = FileSystem()
 sessions = {}
-
 os.makedirs("uploads", exist_ok=True)
+
+OLLAMA_URL = "http://localhost:11434"
+
+def get_ai_response(message: str, file_content: str = None):
+    prompt = f"""You are Omega-Pilot, a helpful AI assistant. Respond naturally and conversationally.
+
+{f'File content to analyze: {file_content[:2000]}' if file_content else ''}
+
+User: {message}
+
+Assistant:"""
+    
+    try:
+        response = requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model": "codellama:7b-instruct",
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.7, "num_predict": 500}
+            },
+            timeout=30
+        )
+        if response.status_code == 200:
+            return response.json().get("response", "")
+    except:
+        pass
+    
+    if file_content:
+        return f"I've analyzed your file. Here's what I found:\n\n{file_content[:500]}..."
+    return f"I understand: {message}"
 
 @app.get("/")
 async def index():
@@ -40,45 +68,53 @@ async def script():
 @app.websocket("/ws/{session_id}")
 async def websocket_handler(websocket: WebSocket, session_id: str):
     await websocket.accept()
-    sessions[session_id] = websocket
     
     try:
         while True:
             data = await websocket.receive_text()
-            try:
-                msg = json.loads(data)
-                user_msg = msg.get("message", data)
-            except:
-                user_msg = data
+            msg = json.loads(data)
+            user_message = msg.get("message", "")
+            file_path = msg.get("file_path", None)
             
-            response = {"response": f"Received: {user_msg}. I can execute code, create files, and more."}
+            file_content = None
+            if file_path and os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r') as f:
+                        file_content = f.read()
+                except:
+                    file_content = "Binary file - cannot display content"
             
-            if "code" in user_msg.lower() or "python" in user_msg.lower():
-                result = await executor.execute_code("print('Hello from Omega-Pilot')", "python")
-                response["execution"] = result
-            
-            await websocket.send_json(response)
+            response = get_ai_response(user_message, file_content)
+            await websocket.send_json({"response": response})
             
     except WebSocketDisconnect:
-        del sessions[session_id]
+        pass
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), session_id: str = Form(...)):
-    result = await fs.save_upload(file, session_id)
-    return result
-
-@app.get("/download/{session_id}/{filename}")
-async def download_file(session_id: str, filename: str):
-    file_path = f"uploads/{session_id}/{filename}"
-    if os.path.exists(file_path):
-        return FileResponse(file_path, filename=filename)
-    return JSONResponse({"error": "File not found"}, status_code=404)
+    session_dir = f"uploads/{session_id}"
+    os.makedirs(session_dir, exist_ok=True)
+    
+    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+    file_path = f"{session_dir}/{filename}"
+    
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+    
+    return {
+        "success": True,
+        "filename": filename,
+        "path": file_path,
+        "size": len(content)
+    }
 
 @app.get("/files/{session_id}")
 async def list_files(session_id: str):
-    return await fs.list_files(session_id)
-
-@app.post("/execute")
-async def execute_code(code: str, language: str = "python"):
-    result = await executor.execute_code(code, language)
-    return result
+    session_dir = f"uploads/{session_id}"
+    files = []
+    if os.path.exists(session_dir):
+        for f in os.listdir(session_dir):
+            path = f"{session_dir}/{f}"
+            files.append({"name": f, "size": os.path.getsize(path)})
+    return {"files": files}
