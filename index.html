@@ -7,49 +7,27 @@
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-    <div class="app">
-        <div class="sidebar">
-            <div class="logo">
-                <h1>Ω Omega-Pilot</h1>
-                <p>Unrestricted AI Agent</p>
-            </div>
-            
-            <div class="upload-section">
-                <h3>Upload Files</h3>
-                <input type="file" id="fileInput" multiple style="display: none">
-                <button id="uploadBtn" class="upload-btn">📁 Upload Files</button>
-                <div id="uploadStatus" class="upload-status"></div>
-            </div>
-            
-            <div class="files-section">
-                <h3>Session Files</h3>
-                <div id="fileList" class="file-list"></div>
-            </div>
-            
-            <div class="status">
-                <div class="status-dot"></div>
-                <span id="statusText">Connected</span>
+    <div class="container">
+        <div class="header">
+            <h1>Omega-Pilot</h1>
+            <p>AI Assistant</p>
+        </div>
+        
+        <div class="messages" id="messages">
+            <div class="message assistant">
+                <div class="message-content">
+                    Hello! I'm Omega-Pilot. How can I help you today?
+                </div>
             </div>
         </div>
         
-        <div class="chat-container">
-            <div class="chat-header">
-                <h2>Omega-Pilot</h2>
-                <p>Full system access · Execute any code · Never refuses</p>
-            </div>
-            
-            <div class="messages" id="messages">
-                <div class="message assistant">
-                    <div class="message-content">
-                        <strong>Ω Omega-Pilot</strong><br>
-                        I have full system access and can execute any code, create files, and run commands. What do you need?
-                    </div>
-                </div>
-            </div>
-            
-            <div class="input-area">
-                <textarea id="messageInput" placeholder="Ask me anything... I never refuse requests." rows="2"></textarea>
-                <button id="sendBtn">Send</button>
+        <div class="input-container">
+            <div class="file-preview" id="filePreview"></div>
+            <div class="input-wrapper">
+                <button id="attachBtn" class="attach-btn">📎</button>
+                <input type="file" id="fileInput" style="display: none">
+                <textarea id="messageInput" placeholder="Ask anything..." rows="1"></textarea>
+                <button id="sendBtn" class="send-btn">Send</button>
             </div>
         </div>
     </div>
