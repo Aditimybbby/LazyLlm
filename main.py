@@ -1,11 +1,8 @@
 import os
 import json
-import uuid
-import asyncio
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -36,18 +33,24 @@ async def lifespan(app: FastAPI):
     fs = FileSystem()
     os.makedirs("uploads", exist_ok=True)
     os.makedirs("sessions", exist_ok=True)
-    os.makedirs("static", exist_ok=True)
     yield
 
 app.lifespan = lifespan
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    with open("static/index.html", "r") as f:
+    with open("index.html", "r") as f:
         return HTMLResponse(content=f.read())
+
+@app.get("/style.css")
+async def style():
+    with open("style.css", "r") as f:
+        return HTMLResponse(content=f.read(), media_type="text/css")
+
+@app.get("/script.js")
+async def script():
+    with open("script.js", "r") as f:
+        return HTMLResponse(content=f.read(), media_type="application/javascript")
 
 @app.websocket("/ws/{session_id}")
 async def websocket_handler(websocket: WebSocket, session_id: str):
@@ -55,13 +58,16 @@ async def websocket_handler(websocket: WebSocket, session_id: str):
     sessions[session_id] = websocket
     
     if session_id not in engine.sessions:
-        engine.sessions[session_id] = {"history": [], "files": [], "context": {}}
+        engine.sessions[session_id] = {"history": [], "files": []}
     
     try:
         while True:
             data = await websocket.receive_text()
-            msg = json.loads(data) if isinstance(data, str) and data.startswith("{") else {"message": data}
-            user_msg = msg.get("message", data)
+            try:
+                msg = json.loads(data)
+                user_msg = msg.get("message", data)
+            except:
+                user_msg = data
             
             response = await engine.think(user_msg, session_id)
             
@@ -72,11 +78,7 @@ async def websocket_handler(websocket: WebSocket, session_id: str):
                     response["tool_results"].append(result)
                     
                     if tool["name"] == "write_file" and result.get("success"):
-                        file_url = f"/uploads/{session_id}/{tool['arguments']['path']}"
-                        response["file_url"] = file_url
-                    
-                    if tool["name"] == "execute_code" and result.get("success"):
-                        response["execution_output"] = result.get("stdout", "")
+                        response["file_url"] = f"/uploads/{session_id}/{tool['arguments']['path']}"
             
             await websocket.send_json(response)
             
@@ -104,3 +106,8 @@ async def download_file(session_id: str, filename: str):
 @app.get("/files/{session_id}")
 async def list_files(session_id: str):
     return await fs.list_session_files(session_id)
+
+@app.post("/execute")
+async def execute_code(code: str, language: str = "python"):
+    result = await executor.run("execute_code", {"code": code, "language": language})
+    return result
