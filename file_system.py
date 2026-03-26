@@ -35,3 +35,10 @@ class FileSystem:
                 })
         
         return {"files": files}
+    
+    async def read_file_content(self, file_path: str):
+        try:
+            with open(file_path, 'r') as f:
+                return f.read()
+        except:
+            return None
