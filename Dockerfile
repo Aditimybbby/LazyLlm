@@ -1,23 +1,17 @@
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y \
-    git curl wget build-essential nodejs npm \
-    python3-dev libffi-dev libssl-dev procps \
-    net-tools iputils-ping dnsutils ffmpeg \
-    tesseract-ocr zstd && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY *.py .
+COPY *.html .
+COPY *.css .
+COPY *.js .
 
-RUN mkdir -p uploads sessions
+RUN mkdir -p uploads
 
 EXPOSE 8000
 
-CMD ollama serve & sleep 10 && uvicorn main:app --host 0.0.0.0 --port $PORT
+CMD uvicorn main:app --host 0.0.0.0 --port $PORT
